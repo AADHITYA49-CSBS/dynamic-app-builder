@@ -104,7 +104,7 @@ const filterValidFields = (data, validFields) => {
  *               properties:
  *                 error:
  *                   type: string
- *                   example: Missing required field: name
+ *                   example: "Missing required field: name"
  *       500:
  *         description: Internal server error
  *         content:
