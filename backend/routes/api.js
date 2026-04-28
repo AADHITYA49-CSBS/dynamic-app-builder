@@ -1,12 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
-// Import config for validation
-const configRoute = require('./config');
-const sampleConfig = require('./config');
-
 // Get config data
-let config = null;
 const getConfig = () => {
   // In a real app, this would be fetched from a database
   // For now, we'll use the sample config
@@ -55,6 +50,71 @@ const filterValidFields = (data, validFields) => {
 };
 
 // Dynamic POST route for any entity
+/**
+ * @swagger
+ * /api/{entity}:
+ *   post:
+ *     summary: Submit entity data
+ *     description: Accepts and validates entity data, then returns success response
+ *     tags:
+ *       - API
+ *     parameters:
+ *       - in: path
+ *         name: entity
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Entity name (e.g., User)
+ *         example: User
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: John Doe
+ *               age:
+ *                 type: number
+ *                 example: 25
+ *             required:
+ *               - name
+ *               - age
+ *     responses:
+ *       201:
+ *         description: Data saved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: User saved successfully
+ *                 data:
+ *                   type: object
+ *       400:
+ *         description: Validation error - missing required field
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: Missing required field: name
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ */
 router.post('/:entity', (req, res) => {
   try {
     const entity = req.params.entity;
