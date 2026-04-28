@@ -15,7 +15,7 @@ const configRoute = require('./routes/config');
 const apiRoute = require('./routes/api');
 
 app.use('/config', configRoute);
-app.use('/api', apiRoute);
+app.use('/', apiRoute);
 
 app.get('/', (req, res) => {
   res.send('Backend running - Visit http://localhost:5000/api-docs for API documentation');
