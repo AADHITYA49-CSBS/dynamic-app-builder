@@ -1,16 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const { query } = require('../db');
+const { query, ensureEntityTable, insertEntityRow, fetchEntityRows } = require('../db');
 
 /**
  * Get form config from database
  */
 async function getFormConfig(entity) {
   try {
-    const results = await query(
-      'SELECT form_schema FROM forms WHERE name = ?',
-      [entity]
-    );
+    const results = await query('SELECT id, name, `schema` FROM forms WHERE name = ?', [entity]);
 
     if (results.length === 0) {
       return null;
@@ -19,13 +16,24 @@ async function getFormConfig(entity) {
     const form = results[0];
     let fields = [];
     try {
-      fields = JSON.parse(form.form_schema);
+      if (Array.isArray(form.schema)) {
+        fields = form.schema;
+      } else {
+        const parsed = JSON.parse(form.schema);
+        if (Array.isArray(parsed)) {
+          fields = parsed;
+        } else if (parsed && Array.isArray(parsed.fields)) {
+          fields = parsed.fields;
+        } else {
+          fields = [];
+        }
+      }
     } catch (err) {
       console.error('Error parsing form schema:', err);
       fields = [];
     }
 
-    return { entity, fields };
+    return { id: form.id, entity: form.name, fields };
   } catch (err) {
     console.error('Error fetching form config:', err);
     throw err;
@@ -36,7 +44,9 @@ async function getFormConfig(entity) {
  * Filter to only valid fields based on schema
  */
 const filterValidFields = (data, validFields) => {
-  const fieldNames = validFields.map(field => field.name).filter(name => name);
+  const fieldNames = validFields
+    .map((field) => (field && typeof field.name === 'string' ? field.name.trim() : ''))
+    .filter((name) => name !== '');
   const filteredData = {};
   
   fieldNames.forEach(fieldName => {
@@ -96,6 +106,12 @@ router.post('/:entity', async (req, res) => {
       });
     }
 
+    if (typeof data !== 'object' || Array.isArray(data)) {
+      return res.status(400).json({
+        error: 'Invalid payload. Request body must be a JSON object'
+      });
+    }
+
     // Get form config from database
     const config = await getFormConfig(entity);
     if (!config) {
@@ -107,25 +123,17 @@ router.post('/:entity', async (req, res) => {
     // Filter to only valid fields
     const validatedData = filterValidFields(data, config.fields);
 
-    // Get form ID
-    const formResults = await query(
-      'SELECT id FROM forms WHERE name = ?',
-      [entity]
-    );
-
-    if (formResults.length === 0) {
-      return res.status(404).json({
-        error: `Entity "${entity}" not found`
+    if (Object.keys(validatedData).length === 0) {
+      return res.status(400).json({
+        error: 'Invalid payload. No valid fields found for this entity'
       });
     }
 
-    const formId = formResults[0].id;
+    // Ensure entity table exists and migrate schema if needed
+    await ensureEntityTable(entity, config.fields);
 
-    // Insert into form_submissions
-    const result = await query(
-      'INSERT INTO form_submissions (form_id, data) VALUES (?, ?)',
-      [formId, JSON.stringify(validatedData)]
-    );
+    // Insert into the dynamic entity table
+    const result = await insertEntityRow(entity, validatedData, config.fields);
 
     console.log(`[${new Date().toISOString()}] POST /api/${entity} - Submission saved (ID: ${result.insertId})`);
 
@@ -175,13 +183,8 @@ router.get('/:entity', async (req, res) => {
       });
     }
 
-    // Get form ID
-    const formResults = await query(
-      'SELECT id FROM forms WHERE name = ?',
-      [entity]
-    );
-
-    if (formResults.length === 0) {
+    const config = await getFormConfig(entity);
+    if (!config) {
       console.log(`[${new Date().toISOString()}] GET /api/${entity} - Entity not found`);
       return res.status(404).json({
         error: `Entity "${entity}" not found`,
@@ -189,30 +192,11 @@ router.get('/:entity', async (req, res) => {
       });
     }
 
-    const formId = formResults[0].id;
+    // Fetch rows from dynamic entity table. Returns [] if table missing
+    const rows = await fetchEntityRows(entity);
 
-    // Fetch all submissions
-    const submissions = await query(
-      'SELECT id, data, submitted_at FROM form_submissions WHERE form_id = ? ORDER BY submitted_at DESC',
-      [formId]
-    );
-
-    // Parse JSON data
-    const parsedSubmissions = submissions.map(submission => {
-      let parsedData = {};
-      try {
-        parsedData = JSON.parse(submission.data);
-      } catch (err) {
-        console.error('Error parsing submission data:', err);
-        parsedData = submission.data;
-      }
-
-      return {
-        id: submission.id,
-        ...parsedData,
-        submitted_at: submission.submitted_at
-      };
-    });
+    // rows are already in object form; return them directly
+    const parsedSubmissions = rows.map(r => ({ ...r }));
 
     console.log(`[${new Date().toISOString()}] GET /api/${entity} - Found ${parsedSubmissions.length} submissions`);
 
