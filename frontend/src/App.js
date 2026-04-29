@@ -9,32 +9,59 @@ function App() {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  const [submissions, setSubmissions] = useState([]);
+  const [loadingSubmissions, setLoadingSubmissions] = useState(false);
 
+  // Fetch config on mount
   useEffect(() => {
-    setLoading(true);
-    setError('');
-    axios.get('http://localhost:5000/config')
-      .then(res => {
-        // defensively handle malformed config
-        const cfg = res && res.data ? res.data : {};
-        const fields = Array.isArray(cfg.fields) ? cfg.fields : [];
-        setConfig({ ...cfg, fields });
-
-        const initialFormData = {};
-        fields.forEach(field => {
-          if (field && typeof field.name === 'string' && field.name.trim() !== '') {
-            initialFormData[field.name] = '';
-          }
-        });
-        setFormData(initialFormData);
-      })
-      .catch(err => {
-        console.error('Failed to load config', err);
-        setError('Failed to load form configuration. Please try again later.');
-        setConfig(null);
-      })
-      .finally(() => setLoading(false));
+    fetchConfig();
   }, []);
+
+  // Fetch config
+  const fetchConfig = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const res = await axios.get('http://localhost:5000/config');
+      
+      const cfg = res && res.data ? res.data : {};
+      const fields = Array.isArray(cfg.fields) ? cfg.fields : [];
+      setConfig({ ...cfg, fields });
+
+      const initialFormData = {};
+      fields.forEach(field => {
+        if (field && typeof field.name === 'string' && field.name.trim() !== '') {
+          initialFormData[field.name] = '';
+        }
+      });
+      setFormData(initialFormData);
+
+      // Fetch initial submissions
+      if (cfg.entity) {
+        await fetchSubmissions(cfg.entity);
+      }
+    } catch (err) {
+      console.error('Failed to load config', err);
+      setError('Failed to load form configuration. Please try again later.');
+      setConfig(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch submissions
+  const fetchSubmissions = async (entity) => {
+    try {
+      setLoadingSubmissions(true);
+      const res = await axios.get(`http://localhost:5000/api/${entity}`);
+      setSubmissions(res.data.data || []);
+    } catch (err) {
+      console.error('Failed to load submissions', err);
+      setSubmissions([]);
+    } finally {
+      setLoadingSubmissions(false);
+    }
+  };
 
   const handleInputChange = (fieldName, value) => {
     setSuccessMessage('');
@@ -44,6 +71,7 @@ function App() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!config || isSubmitting) return;
+    
     const entity = config.entity;
     if (!entity) {
       setError('Entity not defined in config.');
@@ -58,16 +86,30 @@ function App() {
     try {
       const res = await axios.post(apiUrl, formData);
       console.log('Response:', res.data);
+      
       setSuccessMessage('Form submitted successfully!');
+      
+      // Clear form
+      const initialFormData = {};
+      config.fields.forEach(field => {
+        if (field && typeof field.name === 'string' && field.name.trim() !== '') {
+          initialFormData[field.name] = '';
+        }
+      });
+      setFormData(initialFormData);
+
+      // Refresh submissions
+      await fetchSubmissions(entity);
     } catch (err) {
-      console.error('Error submitting form:', err.response ? err.response.data : err.message);
-      setError('Error submitting form. Please check the data and try again.');
+      console.error('Error submitting form:', err);
+      const errorMsg = err.response?.data?.error || 'Error submitting form. Please check the data and try again.';
+      setError(errorMsg);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const allowedTypes = new Set(['text','number','email','password','date','checkbox','radio','textarea']);
+  const allowedTypes = new Set(['text', 'number', 'email', 'password', 'date', 'checkbox', 'radio', 'textarea']);
 
   if (loading) {
     return (
@@ -83,56 +125,104 @@ function App() {
   return (
     <div className="app-shell">
       <div className="app-card">
-        <h1>Dynamic Form</h1>
+        <h1>Dynamic Form Builder</h1>
 
         {error && <p className="status-message status-message--error">{error}</p>}
         {successMessage && <p className="status-message status-message--success">{successMessage}</p>}
 
         {config && (
-          <form onSubmit={handleSubmit} className="dynamic-form">
-            {(Array.isArray(config.fields) ? config.fields : []).map((field, index) => {
-              if (!field || typeof field !== 'object') return null;
+          <>
+            {/* Form Section */}
+            <section className="form-section">
+              <h2>Submit {config.entity} Data</h2>
+              <form onSubmit={handleSubmit} className="dynamic-form">
+                {(Array.isArray(config.fields) ? config.fields : []).map((field, index) => {
+                  if (!field || typeof field !== 'object') return null;
 
-              const hasName = typeof field.name === 'string' && field.name.trim() !== '';
-              const labelText = hasName ? field.name : 'Unknown Field';
+                  const hasName = typeof field.name === 'string' && field.name.trim() !== '';
+                  const labelText = hasName ? field.name : 'Unknown Field';
+                  const type = allowedTypes.has(field.type) ? field.type : 'text';
 
-              const type = allowedTypes.has(field.type) ? field.type : 'text';
+                  if (!hasName) {
+                    return (
+                      <div key={index} className="field-group">
+                        <label>{labelText}</label>
+                        <input type={type} placeholder={labelText} />
+                      </div>
+                    );
+                  }
 
-              // If field has no name we render a safe, uncontrolled fallback input
-              if (!hasName) {
-                return (
-                  <div key={index} className="field-group">
-                    <label>{labelText}</label>
-                    <input type={type} placeholder={labelText} />
-                  </div>
-                );
-              }
+                  return (
+                    <div key={index} className="field-group">
+                      <label htmlFor={field.name}>{labelText}</label>
+                      {type === 'textarea' ? (
+                        <textarea
+                          id={field.name}
+                          placeholder={labelText}
+                          value={formData[field.name] || ''}
+                          onChange={e => handleInputChange(field.name, e.target.value)}
+                        />
+                      ) : (
+                        <input
+                          id={field.name}
+                          type={type}
+                          placeholder={labelText}
+                          value={formData[field.name] || ''}
+                          onChange={e => handleInputChange(field.name, e.target.value)}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
 
-              return (
-                <div key={index} className="field-group">
-                  <label>{labelText}</label>
-                  {type === 'textarea' ? (
-                    <textarea
-                      placeholder={labelText}
-                      value={formData[field.name] || ''}
-                      onChange={e => handleInputChange(field.name, e.target.value)}
-                    />
-                  ) : (
-                    <input
-                      type={type}
-                      placeholder={labelText}
-                      value={formData[field.name] || ''}
-                      onChange={e => handleInputChange(field.name, e.target.value)}
-                    />
-                  )}
+                <button type="submit" className="submit-button" disabled={isSubmitting}>
+                  {isSubmitting ? 'Submitting...' : 'Submit'}
+                </button>
+              </form>
+            </section>
+
+            {/* Submissions Table Section */}
+            <section className="submissions-section">
+              <h2>Submitted {config.entity} Data</h2>
+              
+              {loadingSubmissions ? (
+                <p className="status-message status-message--info">Loading submissions...</p>
+              ) : submissions.length === 0 ? (
+                <p className="status-message status-message--info">No submissions yet. Fill out the form above to get started.</p>
+              ) : (
+                <div className="table-wrapper">
+                  <table className="submissions-table">
+                    <thead>
+                      <tr>
+                        {config.fields
+                          .filter(f => f && typeof f.name === 'string' && f.name.trim() !== '')
+                          .map(field => (
+                            <th key={field.name}>{field.name}</th>
+                          ))}
+                        <th>Submitted At</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {submissions.map((submission, idx) => (
+                        <tr key={idx}>
+                          {config.fields
+                            .filter(f => f && typeof f.name === 'string' && f.name.trim() !== '')
+                            .map(field => (
+                              <td key={field.name}>{submission[field.name] || '-'}</td>
+                            ))}
+                          <td>
+                            {submission.submitted_at
+                              ? new Date(submission.submitted_at).toLocaleString()
+                              : '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              );
-            })}
-
-            <button type="submit" className="submit-button" disabled={isSubmitting}>
-              {isSubmitting ? 'Submitting...' : 'Submit'}
-            </button>
-          </form>
+              )}
+            </section>
+          </>
         )}
       </div>
     </div>
