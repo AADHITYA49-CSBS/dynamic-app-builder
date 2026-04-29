@@ -34,6 +34,7 @@ async function ensureSchema() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         \`schema\` JSON,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uq_forms_name (name)
       )
     `);
@@ -73,6 +74,19 @@ async function ensureSchema() {
     if (legacyColumn[0].count > 0 && schemaColumn[0].count === 0) {
       await query('ALTER TABLE forms ADD COLUMN `schema` JSON');
       await query('UPDATE forms SET `schema` = form_schema WHERE `schema` IS NULL');
+    }
+
+    const createdAtColumn = await query(
+      `SELECT COUNT(*) AS count
+       FROM information_schema.columns
+       WHERE table_schema = ?
+         AND table_name = 'forms'
+         AND column_name = 'created_at'`,
+      [process.env.DB_NAME || 'dynamic_app_builder']
+    );
+
+    if (createdAtColumn[0].count === 0) {
+      await query('ALTER TABLE forms ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
     }
 
     console.log('✓ Database schema ensured');

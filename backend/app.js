@@ -4,6 +4,7 @@ require('dotenv').config();
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swagger');
 const db = require('./db');
+const PORT = process.env.PORT || 5000;
 
 const app = express();
 
@@ -23,9 +24,9 @@ app.get('/', (req, res) => {
   res.send('Backend running - Visit http://localhost:5000/api-docs for API documentation');
 });
 
-const server = app.listen(5000, async () => {
-  console.log('Server running on port 5000');
-  console.log('Swagger UI available at http://localhost:5000/api-docs');
+const server = app.listen(PORT, async () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Swagger UI available at http://localhost:${PORT}/api-docs`);
   
   // Test database connection
   const isConnected = await db.testConnection();
@@ -33,6 +34,8 @@ const server = app.listen(5000, async () => {
     console.error('Failed to connect to database. Please check your .env configuration.');
     process.exit(1);
   }
+
+  await db.ensureSchema();
 });
 
 // Graceful shutdown

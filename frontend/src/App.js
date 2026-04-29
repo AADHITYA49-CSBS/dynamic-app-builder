@@ -2,6 +2,9 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import './App.css';
 
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+const DEFAULT_ENTITY = 'User';
+
 function App() {
   const [config, setConfig] = useState(null);
   const [formData, setFormData] = useState({});
@@ -22,11 +25,11 @@ function App() {
     try {
       setLoading(true);
       setError('');
-      const res = await axios.get('http://localhost:5000/config');
+      const res = await axios.get(`${API_BASE_URL}/config/${DEFAULT_ENTITY}`);
       
       const cfg = res && res.data ? res.data : {};
       const fields = Array.isArray(cfg.fields) ? cfg.fields : [];
-      setConfig({ ...cfg, fields });
+      setConfig({ entity: DEFAULT_ENTITY, ...cfg, fields });
 
       const initialFormData = {};
       fields.forEach(field => {
@@ -53,7 +56,7 @@ function App() {
   const fetchSubmissions = async (entity) => {
     try {
       setLoadingSubmissions(true);
-      const res = await axios.get(`http://localhost:5000/api/${entity}`);
+      const res = await axios.get(`${API_BASE_URL}/api/${entity}`);
       setSubmissions(res.data.data || []);
     } catch (err) {
       console.error('Failed to load submissions', err);
@@ -78,7 +81,7 @@ function App() {
       return;
     }
 
-    const apiUrl = `http://localhost:5000/api/${entity}`;
+    const apiUrl = `${API_BASE_URL}/api/${entity}`;
     setIsSubmitting(true);
     setError('');
     setSuccessMessage('');
@@ -140,17 +143,11 @@ function App() {
                   if (!field || typeof field !== 'object') return null;
 
                   const hasName = typeof field.name === 'string' && field.name.trim() !== '';
-                  const labelText = hasName ? field.name : 'Unknown Field';
+                  if (!hasName) return null;
+
+                  const labelText = field.name;
                   const type = allowedTypes.has(field.type) ? field.type : 'text';
 
-                  if (!hasName) {
-                    return (
-                      <div key={index} className="field-group">
-                        <label>{labelText}</label>
-                        <input type={type} placeholder={labelText} />
-                      </div>
-                    );
-                  }
 
                   return (
                     <div key={index} className="field-group">

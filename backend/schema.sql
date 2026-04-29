@@ -1,19 +1,10 @@
-/**
- * Database Schema for Dynamic App Builder
- * Run this file to initialize the database structure
- *
- * Usage: mysql -u root -p dynamic_app_builder < schema.sql
- */
-
 -- Create forms table
 CREATE TABLE IF NOT EXISTS forms (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
-  description TEXT,
-  form_schema JSON,
+  `schema` JSON,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_created_at (created_at)
+  UNIQUE KEY uq_forms_name (name)
 );
 
 -- Create form_submissions table
@@ -22,22 +13,24 @@ CREATE TABLE IF NOT EXISTS form_submissions (
   form_id INT NOT NULL,
   data JSON,
   submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (form_id) REFERENCES forms(id) ON DELETE CASCADE,
   INDEX idx_form_id (form_id),
-  INDEX idx_submitted_at (submitted_at)
+  CONSTRAINT fk_form_submissions_form
+    FOREIGN KEY (form_id) REFERENCES forms(id)
+    ON DELETE CASCADE
 );
 
--- Insert sample form data
-INSERT INTO forms (name, description, form_schema) VALUES
-(
-  'User Registration Form',
-  'Basic user registration form with validation',
+-- Seed one sample config used by /config and /api/:entity
+INSERT INTO forms (name, `schema`)
+VALUES (
+  'User',
   JSON_OBJECT(
+    'entity', 'User',
     'fields', JSON_ARRAY(
-      JSON_OBJECT('id', 'name', 'label', 'Full Name', 'type', 'text', 'required', true),
-      JSON_OBJECT('id', 'email', 'label', 'Email', 'type', 'email', 'required', true),
-      JSON_OBJECT('id', 'password', 'label', 'Password', 'type', 'password', 'required', true)
+      JSON_OBJECT('name', 'name', 'type', 'text'),
+      JSON_OBJECT('name', 'age', 'type', 'number'),
+      JSON_OBJECT('name', 'email', 'type', 'email')
     )
   )
-);
+)
+ON DUPLICATE KEY UPDATE `schema` = VALUES(`schema`);
 

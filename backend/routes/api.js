@@ -1,56 +1,43 @@
 const express = require('express');
 const router = express.Router();
-const { query, ensureEntityTable, insertEntityRow, fetchEntityRows } = require('../db');
+const { query } = require('../db');
 
-/**
- * Get form config from database
- */
 async function getFormConfig(entity) {
-  try {
-    const results = await query('SELECT id, name, `schema` FROM forms WHERE name = ?', [entity]);
+  const results = await query('SELECT id, name, `schema` FROM forms WHERE name = ? LIMIT 1', [entity]);
 
-    if (results.length === 0) {
-      return null;
-    }
-
-    const form = results[0];
-    let fields = [];
-    try {
-      if (Array.isArray(form.schema)) {
-        fields = form.schema;
-      } else {
-        const parsed = JSON.parse(form.schema);
-        if (Array.isArray(parsed)) {
-          fields = parsed;
-        } else if (parsed && Array.isArray(parsed.fields)) {
-          fields = parsed.fields;
-        } else {
-          fields = [];
-        }
-      }
-    } catch (err) {
-      console.error('Error parsing form schema:', err);
-      fields = [];
-    }
-
-    return { id: form.id, entity: form.name, fields };
-  } catch (err) {
-    console.error('Error fetching form config:', err);
-    throw err;
+  if (results.length === 0) {
+    return null;
   }
+
+  const form = results[0];
+  let parsed = null;
+
+  try {
+    parsed = typeof form.schema === 'object' ? form.schema : JSON.parse(form.schema);
+  } catch (err) {
+    console.error('Error parsing form schema:', err);
+    parsed = null;
+  }
+
+  if (Array.isArray(parsed)) {
+    parsed = { entity: form.name, fields: parsed };
+  }
+
+  if (!parsed || !Array.isArray(parsed.fields)) {
+    return null;
+  }
+
+  return { id: form.id, entity: form.name, fields: parsed.fields };
 }
 
-/**
- * Filter to only valid fields based on schema
- */
 const filterValidFields = (data, validFields) => {
   const fieldNames = validFields
     .map((field) => (field && typeof field.name === 'string' ? field.name.trim() : ''))
     .filter((name) => name !== '');
   const filteredData = {};
-  
-  fieldNames.forEach(fieldName => {
-    if (fieldName in data) {
+
+  fieldNames.forEach((fieldName) => {
+    if (Object.prototype.hasOwnProperty.call(data, fieldName)) {
       filteredData[fieldName] = data[fieldName];
     }
   });
@@ -112,7 +99,6 @@ router.post('/:entity', async (req, res) => {
       });
     }
 
-    // Get form config from database
     const config = await getFormConfig(entity);
     if (!config) {
       return res.status(404).json({
@@ -120,7 +106,6 @@ router.post('/:entity', async (req, res) => {
       });
     }
 
-    // Filter to only valid fields
     const validatedData = filterValidFields(data, config.fields);
 
     if (Object.keys(validatedData).length === 0) {
@@ -129,11 +114,10 @@ router.post('/:entity', async (req, res) => {
       });
     }
 
-    // Ensure entity table exists and migrate schema if needed
-    await ensureEntityTable(entity, config.fields);
-
-    // Insert into the dynamic entity table
-    const result = await insertEntityRow(entity, validatedData, config.fields);
+    const result = await query(
+      'INSERT INTO form_submissions (form_id, data) VALUES (?, ?)',
+      [config.id, JSON.stringify(validatedData)]
+    );
 
     console.log(`[${new Date().toISOString()}] POST /api/${entity} - Submission saved (ID: ${result.insertId})`);
 
@@ -188,15 +172,32 @@ router.get('/:entity', async (req, res) => {
       console.log(`[${new Date().toISOString()}] GET /api/${entity} - Entity not found`);
       return res.status(404).json({
         error: `Entity "${entity}" not found`,
-        data: []
       });
     }
 
-    // Fetch rows from dynamic entity table. Returns [] if table missing
-    const rows = await fetchEntityRows(entity);
+    const rows = await query(
+      `SELECT fs.id, fs.data, fs.submitted_at
+       FROM form_submissions fs
+       JOIN forms f ON fs.form_id = f.id
+       WHERE f.name = ?
+       ORDER BY fs.submitted_at DESC`,
+      [entity]
+    );
 
-    // rows are already in object form; return them directly
-    const parsedSubmissions = rows.map(r => ({ ...r }));
+    const parsedSubmissions = rows.map((row) => {
+      let parsedData = {};
+      try {
+        parsedData = typeof row.data === 'object' ? row.data : JSON.parse(row.data);
+      } catch (err) {
+        parsedData = {};
+      }
+
+      return {
+        id: row.id,
+        data: parsedData,
+        submitted_at: row.submitted_at,
+      };
+    });
 
     console.log(`[${new Date().toISOString()}] GET /api/${entity} - Found ${parsedSubmissions.length} submissions`);
 
