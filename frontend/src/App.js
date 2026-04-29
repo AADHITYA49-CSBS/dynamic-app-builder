@@ -1,12 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import './App.css';
 
 function App() {
   const [config, setConfig] = useState(null);
   const [formData, setFormData] = useState({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   useEffect(() => {
+    setLoading(true);
+    setError('');
     axios.get('http://localhost:5000/config')
       .then(res => {
         // defensively handle malformed config
@@ -24,96 +30,111 @@ function App() {
       })
       .catch(err => {
         console.error('Failed to load config', err);
-        setConfig({ fields: [] });
+        setError('Failed to load form configuration. Please try again later.');
+        setConfig(null);
       })
       .finally(() => setLoading(false));
   }, []);
 
   const handleInputChange = (fieldName, value) => {
+    setSuccessMessage('');
     setFormData(prev => ({ ...prev, [fieldName]: value }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!config) return alert('Configuration not loaded');
+    if (!config || isSubmitting) return;
     const entity = config.entity;
-    if (!entity) return alert('Entity not defined in config');
+    if (!entity) {
+      setError('Entity not defined in config.');
+      return;
+    }
 
     const apiUrl = `http://localhost:5000/api/${entity}`;
-    axios.post(apiUrl, formData)
-      .then(res => {
-        console.log('Response:', res.data);
-        alert('Form submitted successfully!');
-      })
-      .catch(err => {
-        console.error('Error submitting form:', err.response ? err.response.data : err.message);
-        alert('Error submitting form');
-      });
+    setIsSubmitting(true);
+    setError('');
+    setSuccessMessage('');
+
+    try {
+      const res = await axios.post(apiUrl, formData);
+      console.log('Response:', res.data);
+      setSuccessMessage('Form submitted successfully!');
+    } catch (err) {
+      console.error('Error submitting form:', err.response ? err.response.data : err.message);
+      setError('Error submitting form. Please check the data and try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const allowedTypes = new Set(['text','number','email','password','date','checkbox','radio','textarea']);
 
   if (loading) {
     return (
-      <div style={{ padding: '20px' }}>
-        <h1>Dynamic Form</h1>
-        <p>Loading...</p>
+      <div className="app-shell">
+        <div className="app-card">
+          <h1>Dynamic Form</h1>
+          <p className="status-message status-message--info">Loading form configuration...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: '20px' }}>
-      <h1>Dynamic Form</h1>
+    <div className="app-shell">
+      <div className="app-card">
+        <h1>Dynamic Form</h1>
 
-      {!config && <p>Loading...</p>}
+        {error && <p className="status-message status-message--error">{error}</p>}
+        {successMessage && <p className="status-message status-message--success">{successMessage}</p>}
 
-      {config && (
-        <form onSubmit={handleSubmit}>
-          {(Array.isArray(config.fields) ? config.fields : []).map((field, index) => {
-            if (!field || typeof field !== 'object') return null;
+        {config && (
+          <form onSubmit={handleSubmit} className="dynamic-form">
+            {(Array.isArray(config.fields) ? config.fields : []).map((field, index) => {
+              if (!field || typeof field !== 'object') return null;
 
-            const hasName = typeof field.name === 'string' && field.name.trim() !== '';
-            const labelText = hasName ? field.name : 'Unknown Field';
+              const hasName = typeof field.name === 'string' && field.name.trim() !== '';
+              const labelText = hasName ? field.name : 'Unknown Field';
 
-            const type = allowedTypes.has(field.type) ? field.type : 'text';
+              const type = allowedTypes.has(field.type) ? field.type : 'text';
 
-            // If field has no name we render a safe, uncontrolled fallback input
-            if (!hasName) {
+              // If field has no name we render a safe, uncontrolled fallback input
+              if (!hasName) {
+                return (
+                  <div key={index} className="field-group">
+                    <label>{labelText}</label>
+                    <input type={type} placeholder={labelText} />
+                  </div>
+                );
+              }
+
               return (
-                <div key={index} style={{ marginBottom: '15px' }}>
-                  <label>{labelText}</label><br />
-                  <input type={type} placeholder={labelText} />
+                <div key={index} className="field-group">
+                  <label>{labelText}</label>
+                  {type === 'textarea' ? (
+                    <textarea
+                      placeholder={labelText}
+                      value={formData[field.name] || ''}
+                      onChange={e => handleInputChange(field.name, e.target.value)}
+                    />
+                  ) : (
+                    <input
+                      type={type}
+                      placeholder={labelText}
+                      value={formData[field.name] || ''}
+                      onChange={e => handleInputChange(field.name, e.target.value)}
+                    />
+                  )}
                 </div>
               );
-            }
+            })}
 
-            return (
-              <div key={index} style={{ marginBottom: '15px' }}>
-                <label>{labelText}</label><br />
-                {type === 'textarea' ? (
-                  <textarea
-                    placeholder={labelText}
-                    value={formData[field.name] || ''}
-                    onChange={e => handleInputChange(field.name, e.target.value)}
-                  />
-                ) : (
-                  <input
-                    type={type}
-                    placeholder={labelText}
-                    value={formData[field.name] || ''}
-                    onChange={e => handleInputChange(field.name, e.target.value)}
-                  />
-                )}
-              </div>
-            );
-          })}
-
-          <button type="submit" style={{ padding: '10px 20px', cursor: 'pointer' }}>
-            Submit
-          </button>
-        </form>
-      )}
+            <button type="submit" className="submit-button" disabled={isSubmitting}>
+              {isSubmitting ? 'Submitting...' : 'Submit'}
+            </button>
+          </form>
+        )}
+      </div>
     </div>
   );
 }
