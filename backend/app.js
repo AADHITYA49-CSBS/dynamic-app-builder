@@ -1,7 +1,9 @@
 const express = require('express');
 const cors = require('cors');
+require('dotenv').config();
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swagger');
+const db = require('./db');
 
 const app = express();
 
@@ -15,13 +17,39 @@ const configRoute = require('./routes/config');
 const apiRoute = require('./routes/api');
 
 app.use('/config', configRoute);
-app.use('/', apiRoute);
+app.use('/api', apiRoute);
 
 app.get('/', (req, res) => {
   res.send('Backend running - Visit http://localhost:5000/api-docs for API documentation');
 });
 
-app.listen(5000, () => {
+const server = app.listen(5000, async () => {
   console.log('Server running on port 5000');
   console.log('Swagger UI available at http://localhost:5000/api-docs');
+  
+  // Test database connection
+  const isConnected = await db.testConnection();
+  if (!isConnected) {
+    console.error('Failed to connect to database. Please check your .env configuration.');
+    process.exit(1);
+  }
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  server.close(async () => {
+    await db.closePool();
+    console.log('HTTP server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', async () => {
+  console.log('SIGINT signal received: closing HTTP server');
+  server.close(async () => {
+    await db.closePool();
+    console.log('HTTP server closed');
+    process.exit(0);
+  });
 });
